@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard de Ventas de Dispositivos</title>
+  
+  <!-- T1: Importación CDN de Google Charts y D3 v7 -->
+  <script src="https://www.gstatic.com/charts/loader.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+
+  <style>
+    /* T2: Estilos CSS y maquetación vertical responsiva */
+    :root {
+      --color-smartphone-a: #2B78E4;
+      --color-smartphone-b: #E65100;
+      --color-tablet-x: #27AE60;
+      --bg-color: #f4f6f9;
+      --text-color: #333333;
+      --card-bg: #ffffff;
+      --border-color: #dddddd;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      padding: 20px;
+      line-height: 1.6;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 25px;
+    }
+
+    .dashboard-container {
+      display: flex;
+      flex-direction: column;
+      gap: 30px;
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    #controls {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 15px;
+      margin-bottom: 10px;
+    }
+
+    #update-btn {
+      background-color: #333333;
+      color: #ffffff;
+      border: none;
+      padding: 10px 20px;
+      font-size: 16px;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    #update-btn:hover {
+      background-color: #555555;
+    }
+
+    #loading-indicator {
+      font-weight: bold;
+      color: #555;
+    }
+
+    .chart-card {
+      background: var(--card-bg);
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      border: 1px solid var(--border-color);
+    }
+
+    .chart-card h2 {
+      margin-bottom: 10px;
+      font-size: 1.4em;
+      text-align: center;
+      color: #222;
+    }
+
+    .chart-description {
+      font-size: 0.9em;
+      color: #555555;
+      margin-bottom: 15px;
+      font-weight: bold;
+      text-align: center;
+    }
+
+    #chart svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    /* Tooltip */
+    #tooltip {
+      position: absolute;
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.95);
+      color: #000000;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      pointer-events: none;
+      font-size: 13px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+      z-index: 1000;
+      transition: opacity 0.15s ease;
+    }
+
+    .hidden {
+      display: none !important;
+      opacity: 0;
+    }
+
+    /* Modal Outliers */
+    dialog {
+      margin: auto;
+      padding: 20px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      max-width: 500px;
+      background-color: #fff;
+    }
+    
+    dialog::backdrop {
+      background: rgba(0, 0, 0, 0.5);
+    }
+
+    .modal-content h3 {
+      margin-bottom: 10px;
+      color: #d32f2f;
+    }
+
+    .modal-content p {
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+
+    #close-modal-btn {
+      padding: 8px 16px;
+      background-color: #333;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Visualización Comercial de Dispositivos</h1>
+  </header>
+
+  <!-- Controles Globales -->
+  <section id="controls" aria-label="Controles del Dashboard">
+    <button id="update-btn">Actualizar</button>
+    <div id="loading-indicator" class="hidden" role="status">Procesando datos...</div>
+  </section>
+
+  <!-- Modal para Outliers -->
+  <dialog id="outlier-modal">
+    <div class="modal-content">
+      <h3>Notificación de Calidad de Datos</h3>
+      <p id="outlier-message"></p>
+      <button id="close-modal-btn">Cerrar</button>
+    </div>
+  </dialog>
+
+  <main class="dashboard-container">
+    <!-- Visualización 1: Google Charts (Barras Agrupadas) -->
+    <section class="chart-card">
+      <h2>Ventas por mes</h2>
+      <div id="google-chart-container" style="width: 100%; height: 420px;"></div>
+    </section>
+
+    <!-- Visualización 2: D3.js v7 (Gráfico Multidimensional de Burbujas) -->
+    <section class="chart-card">
+      <h2>Análisis Multidimensional de Productos (D3.js)</h2>
+      <p class="chart-description">
+        Eje x = Ventas, Eje y = Ingresos, Tamaño = Precio, Izquierda = enero, Derecha = febrero
+      </p>
+      <div id="chart">
+        <svg viewBox="0 0 900 550" preserveAspectRatio="xMidYMid meet">
+          <g id="scatter-plot-group">
+            <g id="legend-group" transform="translate(0, 15)"></g>
+            <g id="x-axis-group"></g>
+            <g id="y-axis-group"></g>
+            <g id="bubbles-group"></g>
+          </g>
+        </svg>
+      </div>
+    </section>
+  </main>
+
+  <div id="tooltip" class="hidden" aria-hidden="true"></div>
+
+  <script>
+    // =====================================================================
+    // T3: Estructura del dataset JSON embebido y simulación
+    // =====================================================================
+    const initialDataset = [
+      { "product": "Smartphone A", "month": "Enero", "sales": 120, "revenue": 24000, "price": 200 },
+      { "product": "Smartphone B", "month": "Enero", "sales": 85, "revenue": 25500, "price": 300 },
+      { "product": "Tablet X", "month": "Enero", "sales": 60, "revenue": 18000, "price": 400 },
+      { "product": "Smartphone A", "month": "Febrero", "sales": 150, "revenue": 30000, "price": 200 },
+      { "product": "Smartphone B", "month": "Febrero", "sales": 90, "revenue": 27000, "price": 300 },
+      { "product": "Tablet X", "month": "Febrero", "sales": 70, "revenue": 21000, "price": 400 }
+    ];
+
+    let currentData = JSON.parse(JSON.stringify(initialDataset));
+    let validData = [];
+
+    // Función de simulación con Math.random()
+    function simulateNewMetrics(dataArray) {
+      return dataArray.map(d => {
+        const factor = 0.8 + Math.random() * 0.6; // Variación entre 80% y 140%
+        
+        let newSales = Math.round(d.sales * factor);
+        let newPrice = Math.round(d.price * (0.9 + Math.random() * 0.2)); 
+        let newRevenue = newSales * newPrice;
+
+        // Ocasionalmente generar un outlier forzado para probar el filtro IQR (10% probabilidad)
+        if (Math.random() < 0.1) {
+          newSales = newSales * 4;
+          newRevenue = newSales * newPrice;
+        }
+
+        return {
+          product: d.product,
+          month: d.month,
+          sales: newSales,
+          revenue: newRevenue,
+          price: newPrice
+        };
+      });
+    }
+
+    // Filtro IQR
+    function filterOutliers(data) {
+      if (data.length === 0) return { valid: [], outliers: [] };
+
+      const getIqrRanges = (values) => {
+        if (values.length === 0) return { min: 0, max: 0 };
+        const sorted = values.slice().sort(d3.ascending);
+        const q1 = d3.quantile(sorted, 0.25);
+        const q3 = d3.quantile(sorted, 0.75);
+        const iqr = q3 - q1;
+        return {
+          min: q1 - 1.5 * iqr,
+          max: q3 + 1.5 * iqr
+        };
+      };
+
+      const salesRanges = getIqrRanges(data.map(d => d.sales));
+      const revenueRanges = getIqrRanges(data.map(d => d.revenue));
+
+      const valid = [];
+      const outliers = [];
+
+      data.forEach(d => {
+        // Normalización nulos a 0
+        const s = d.sales || 0;
+        const r = d.revenue || 0;
+        const p = d.price || 0;
+
+        if (s >= salesRanges.min && s <= salesRanges.max &&
+            r >= revenueRanges.min && r <= revenueRanges.max) {
+          valid.push({ ...d, sales: s, revenue: r, price: p });
+        } else {
+          outliers.push({ ...d, sales: s, revenue: r, price: p });
+        }
+      });
+
+      return { valid, outliers };
+    }
+
+    // =====================================================================
+    // Configuración Inicial D3.js (T4, T5, T6, T8)
+    // =====================================================================
+    const svgWidth = 900;
+    const svgHeight = 550;
+    const margin = { top: 70, right: 40, bottom: 60, left: 80 }; // Margen superior para leyenda
+    
+    const width = svgWidth - margin.left - margin.right;
+    const height = svgHeight - margin.top - margin.bottom;
+
+    const svg = d3.select("#scatter-plot-group")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const xAxisGroup = d3.select("#x-axis-group").attr("transform", `translate(0,${height})`);
+    const yAxisGroup = d3.select("#y-axis-group");
+    const bubblesGroup = d3.select("#bubbles-group");
+    const legendGroup = d3.select("#legend-group"); // Se ubica arriba gracias a translateY
+
+    // Escalas
+    const xScale = d3.scaleLinear().range([0, width]);
+    const yScale = d3.scaleLinear().range([height, 0]);
+    const rScale = d3.scaleSqrt().range([8, 25]); // Radio mínimo de 8px
+    const colorScale = d3.scaleOrdinal()
+      .domain(["Smartphone A", "Smartphone B", "Tablet X"])
+      .range(["#2B78E4", "#E65100", "#27AE60"]);
+
+    // Formateadores
+    const formatNumber = d3.format(",d");
+    const formatCurrency = d => "$" + d3.format(",d")(d);
+
+    // =====================================================================
+    // Renderizado de D3.js
+    // =====================================================================
+    function renderD3Chart(data) {
+      if (data.length === 0) {
+        bubblesGroup.selectAll("*").remove();
+        return;
+      }
+
+      // Actualizar dominios
+      xScale.domain([0, d3.max(data, d => d.sales) * 1.15]);
+      yScale.domain([0, d3.max(data, d => d.revenue) * 1.15]);
+      rScale.domain([d3.min(data, d => d.price), d3.max(data, d => d.price)]);
+
+      // T5: Renderizado de ejes X e Y
+      const xAxis = d3.axisBottom(xScale).ticks(8).tickFormat(formatNumber);
+      const yAxis = d3.axisLeft(yScale).ticks(8).tickFormat(formatCurrency);
+
+      xAxisGroup.transition().duration(800).call(xAxis);
+      yAxisGroup.transition().duration(800).call(yAxis);
+
+      // Etiquetas de ejes
+      svg.selectAll(".axis-label").remove();
+      svg.append("text")
+        .attr("class", "axis-label")
+        .attr("text-anchor", "middle")
+        .attr("x", width / 2)
+        .attr("y", height + 45)
+        .text("Unidades Vendidas")
+        .style("font-size", "14px")
+        .style("fill", "#555");
+        
+      svg.append("text")
+        .attr("class", "axis-label")
+        .attr("text-anchor", "middle")
+        .attr("transform", "rotate(-90)")
+        .attr("y", -60)
+        .attr("x", -height / 2)
+        .text("Ingresos ($USD)")
+        .style("font-size", "14px")
+        .style("fill", "#555");
+
+      // T8: Leyenda explicativa superior
+      legendGroup.selectAll("*").remove();
+      const products = colorScale.domain();
+      const legendItems = legendGroup.selectAll(".legend-item")
+        .data(products)
+        .enter()
+        .append("g")
+        .attr("class", "legend-item")
+        .attr("transform", (d, i) => `translate(${i * 180 + (width / 2 - 250)}, -45)`);
+
+      legendItems.append("circle")
+        .attr("r", 8)
+        .attr("fill", d => colorScale(d));
+
+      legendItems.append("text")
+        .attr("x", 15)
+        .attr("y", 4)
+        .text(d => d)
+        .style("font-size", "14px")
+        .style("fill", "#333");
+
+      // T6: Renderizado de burbujas D3.js (Enter-Update-Exit)
+      const tooltip = d3.select("#tooltip");
+
+      const bubbles = bubblesGroup.selectAll("circle")
+        .data(data, d => d.product + d.month);
+
+      // Enter
+      const bubblesEnter = bubbles.enter()
+        .append("circle")
+        .attr("cx", d => xScale(d.sales))
+        .attr("cy", d => yScale(d.revenue))
+        .attr("r", 0) // Comienza en 0 para animación
+        .attr("fill", d => colorScale(d.product))
+        .attr("opacity", d => d.month === "Enero" ? 0.6 : 1.0)
+        .attr("stroke", "#ffffff")
+        .attr("stroke-width", 1);
+
+      // Update + Enter
+      bubblesEnter.merge(bubbles)
+        .on("mouseover", function(event, d) {
+          // T7: Implementación de eventos hover y Tooltip
+          d3.select(this).attr("stroke", "#333").attr("stroke-width", 2);
+          tooltip.classed("hidden", false)
+            .style("left", (event.pageX + 15) + "px")
+            .style("top", (event.pageY - 15) + "px")
+            .html(`
+              <strong>${d.product}</strong><br/>
+              Mes: ${d.month}<br/>
+              Ventas: ${formatNumber(d.sales)}<br/>
+              Ingresos: ${formatCurrency(d.revenue)}<br/>
+              Precio: ${formatCurrency(d.price)}
+            `);
+        })
+        .on("mousemove", function(event) {
+          tooltip.style("left", (event.pageX + 15) + "px")
+                 .style("top", (event.pageY - 15) + "px");
+        })
+        .on("mouseout", function(event, d) {
+          d3.select(this).attr("stroke", "#ffffff").attr("stroke-width", 1);
+          tooltip.classed("hidden", true);
+        })
+        .transition().duration(800).ease(d3.easeCubicOut)
+        .attr("cx", d => xScale(d.sales))
+        .attr("cy", d => yScale(d.revenue))
+        .attr("r", d => rScale(d.price))
+        .attr("opacity", d => d.month === "Enero" ? 0.6 : 1.0);
+
+      // Exit
+      bubbles.exit()
+        .transition().duration(400)
+        .attr("r", 0)
+        .remove();
+    }
+
+    // =====================================================================
+    // T9: Integración de Google Charts
+    // =====================================================================
+    let googleChartInstance;
+
+    function renderGoogleChart(data) {
+      if (data.length === 0) {
+        document.getElementById("google-chart-container").innerHTML = "<p style='text-align:center; padding: 20px;'>Sin datos disponibles.</p>";
+        return;
+      }
+
+      // Preparar datos para Google Charts (Agrupados por mes)
+      const dataTable = new google.visualization.DataTable();
+      dataTable.addColumn('string', 'Mes');
+      dataTable.addColumn('number', 'Smartphone A');
+      dataTable.addColumn('number', 'Smartphone B');
+      dataTable.addColumn('number', 'Tablet X');
+
+      const meses = [...new Set(data.map(d => d.month))]; // ['Enero', 'Febrero']
+      
+      meses.forEach(mes => {
+        const row = [mes, 0, 0, 0];
+        data.filter(d => d.month === mes).forEach(d => {
+          if(d.product === 'Smartphone A') row[1] = d.sales;
+          if(d.product === 'Smartphone B') row[2] = d.sales;
+          if(d.product === 'Tablet X') row[3] = d.sales;
+        });
+        dataTable.addRow(row);
+      });
+
+      const options = {
+        legend: { position: 'top', alignment: 'center' }, // Leyenda superior sin traslapes
+        colors: ['#2B78E4', '#E65100', '#27AE60'], // Mismos colores que D3
+        vAxis: { title: 'Unidades Vendidas', minValue: 0 },
+        hAxis: { title: 'Mes' },
+        animation: { duration: 800, easing: 'out' },
+        chartArea: { width: '80%', height: '70%' },
+        backgroundColor: 'transparent'
+      };
+
+      if (!googleChartInstance) {
+        googleChartInstance = new google.visualization.ColumnChart(document.getElementById('google-chart-container'));
+      }
+      googleChartInstance.draw(dataTable, options);
+    }
+
+    // =====================================================================
+    // T10: Sincronización y Ciclo Principal
+    // =====================================================================
+    function updateDashboard(simulate = false) {
+      const loadingIndicator = document.getElementById("loading-indicator");
+      loadingIndicator.classList.remove("hidden");
+
+      setTimeout(() => {
+        if (simulate) {
+          currentData = simulateNewMetrics(currentData);
+        }
+
+        const { valid, outliers } = filterOutliers(currentData);
+        validData = valid;
+
+        // Modal para outliers
+        const modal = document.getElementById("outlier-modal");
+        if (outliers.length > 0) {
+          let msg = `Se excluyeron ${outliers.length} registro(s) por valores atípicos:<br/><br/>`;
+          outliers.forEach(o => {
+            msg += `<strong>${o.product} (${o.month})</strong> - Ventas: ${o.sales}, Ingresos: $${o.revenue}<br/>`;
+          });
+          document.getElementById("outlier-message").innerHTML = msg;
+          modal.showModal();
+        }
+
+        // Renderizado
+        renderGoogleChart(validData);
+        renderD3Chart(validData);
+
+        loadingIndicator.classList.add("hidden");
+      }, 100);
+    }
+
+    // Eventos
+    document.getElementById("update-btn").addEventListener("click", () => {
+      updateDashboard(true);
+    });
+
+    document.getElementById("close-modal-btn").addEventListener("click", () => {
+      document.getElementById("outlier-modal").close();
+    });
+
+    // Carga inicial de Google Charts
+    google.charts.load('current', { 'packages': ['corechart'] });
+    google.charts.setOnLoadCallback(() => {
+      // Iniciar el dashboard solo cuando Google Charts esté listo
+      updateDashboard(false);
+    });
+
+  </script>
+</body>
+</html>
